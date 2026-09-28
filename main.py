@@ -5,158 +5,60 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-# ==============================
+# ==========================================
 # 페이지 설정
-# ==============================
+# ==========================================
 
 st.set_page_config(
-    page_title="학교 급식 찾아보기",
+    page_title="우리 학교 달력별 급식",
     page_icon="🍚",
     layout="wide"
 )
 
-st.title("학교 급식 찾아보기")
-st.write("학교 이름을 검색하고 원하는 날짜의 중식 메뉴를 확인해 보세요.")
+
+# ==========================================
+# 제목
+# ==========================================
+
+st.title("우리 학교 달력별 급식")
+st.write("송탄고등학교의 날짜별 중식 메뉴를 확인해 보세요.")
 
 
-# ==============================
-# NEIS API 주소
-# ==============================
+# ==========================================
+# 학교 정보
+# ==========================================
 
-SCHOOL_API = "https://open.neis.go.kr/hub/schoolInfo"
+SCHOOL_NAME = "송탄고등학교"
+
+OFFICE_CODE = "J10"
+SCHOOL_CODE = "7530480"
+
 MEAL_API = "https://open.neis.go.kr/hub/mealServiceDietInfo"
 
 
-# ==============================
-# 한국 시간 기준 오늘
-# ==============================
+# ==========================================
+# 한국 시간 기준 오늘 날짜
+# ==========================================
 
 KST = ZoneInfo("Asia/Seoul")
 today_kst = datetime.now(KST).date()
 
 
-# ==============================
-# 학교 이름 축약어 변환
-# ==============================
-
-def expand_school_name(name):
-    name = name.strip()
-
-    # 여고 → 여자고등학교
-    name = name.replace("여고", "여자고등학교")
-
-    # 마지막 글자가 '고'이면 고등학교로 변경
-    if name.endswith("고") and not name.endswith("고등학교"):
-        name = name[:-1] + "고등학교"
-
-    return name
-
-
-# ==============================
-# 학교 정보 검색
-# ==============================
+# ==========================================
+# 급식 API
+# ==========================================
 
 @st.cache_data(ttl=600)
-def search_school(keyword):
+def get_meal(date_string):
 
     params = {
         "Type": "json",
-        "SCHUL_NM": keyword
-    }
-
-    try:
-        response = requests.get(
-            SCHOOL_API,
-            params=params,
-            timeout=10
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-    except requests.RequestException:
-        return [], "NETWORK_ERROR"
-
-    except ValueError:
-        return [], "JSON_ERROR"
-
-
-    # 검색 결과가 없는 경우
-    if "schoolInfo" not in data:
-        return [], "INFO-200"
-
-
-    try:
-        rows = data["schoolInfo"][1]["row"]
-
-    except (KeyError, IndexError, TypeError):
-        return [], "INFO-200"
-
-
-    return rows, "OK"
-
-
-# ==============================
-# 학교 검색
-# ==============================
-
-def find_schools(keyword):
-
-    keyword = keyword.strip()
-
-    if not keyword:
-        return [], False
-
-
-    # 1차 검색
-    schools, status = search_school(keyword)
-
-    if status == "OK" and schools:
-        return schools, False
-
-
-    # 2차 검색
-    # 여고 → 여자고등학교
-    # 고 → 고등학교
-    expanded_name = expand_school_name(keyword)
-
-    if expanded_name != keyword:
-
-        schools, status = search_school(expanded_name)
-
-        if status == "OK" and schools:
-            return schools, True
-
-
-    return [], False
-
-
-# ==============================
-# 급식 정보 검색
-# ==============================
-
-@st.cache_data(ttl=600)
-def search_meal(
-    office_code,
-    school_code,
-    date_string
-):
-
-    params = {
-        "Type": "json",
-        "ATPT_OFCDC_SC_CODE": office_code,
-        "SD_SCHUL_CODE": school_code,
+        "ATPT_OFCDC_SC_CODE": OFFICE_CODE,
+        "SD_SCHUL_CODE": SCHOOL_CODE,
         "MMEAL_SC_CODE": "2",
         "MLSV_FROM_YMD": date_string,
-        "MLSV_TO_YMD": date_string,
-
-        # 인증키 없이 조회하면
-        # NEIS에서 첫 5건만 반환할 수 있음
-        "pSize": "1000",
-        "pIndex": "1"
+        "MLSV_TO_YMD": date_string
     }
-
 
     try:
 
@@ -171,22 +73,31 @@ def search_meal(
         data = response.json()
 
     except requests.RequestException:
+
         return None, "NETWORK_ERROR"
 
     except ValueError:
+
         return None, "JSON_ERROR"
 
 
-    # 급식 데이터가 없는 경우
+    # 급식 정보가 없는 경우
     if "mealServiceDietInfo" not in data:
         return None, "INFO-200"
 
 
     try:
 
-        rows = data["mealServiceDietInfo"][1]["row"]
+        rows = data[
+            "mealServiceDietInfo"
+        ][1]["row"]
 
-    except (KeyError, IndexError, TypeError):
+    except (
+        KeyError,
+        IndexError,
+        TypeError
+    ):
+
         return None, "INFO-200"
 
 
@@ -194,8 +105,7 @@ def search_meal(
         return None, "INFO-200"
 
 
-    # 혹시 여러 날짜가 반환될 경우
-    # 선택한 날짜와 정확히 일치하는 행 찾기
+    # 선택한 날짜의 급식 찾기
     for row in rows:
 
         if row.get("MLSV_YMD") == date_string:
@@ -205,330 +115,215 @@ def search_meal(
     return None, "INFO-200"
 
 
-# ==============================
-# 1. 학교 검색
-# ==============================
+# ==========================================
+# 날짜와 알레르기 스위치
+# ==========================================
 
-st.subheader("1. 학교 선택")
+date_col, allergy_col = st.columns([1.5, 1])
 
-school_keyword = st.text_input(
-    "학교 이름을 입력하세요",
-    placeholder="예: 수도여고"
+
+with date_col:
+
+    st.markdown("### 날짜")
+
+    selected_date = st.date_input(
+        "급식 날짜",
+        value=today_kst,
+        label_visibility="collapsed"
+    )
+
+
+with allergy_col:
+
+    st.markdown("### 알레르기 정보")
+
+    show_allergy = st.toggle(
+        "알레르기 정보 보기",
+        value=True
+    )
+
+
+# ==========================================
+# 선택한 날짜 표시
+# ==========================================
+
+st.markdown(
+    f"### {selected_date.strftime('%Y년 %m월 %d일')} 중식"
 )
 
 
-if school_keyword.strip():
+# ==========================================
+# 급식 조회
+# ==========================================
 
-    schools, was_expanded = find_schools(
-        school_keyword
+date_string = selected_date.strftime("%Y%m%d")
+
+meal, status = get_meal(date_string)
+
+
+# ==========================================
+# 급식이 없는 경우
+# ==========================================
+
+if status == "INFO-200" or meal is None:
+
+    st.info("급식이 없는 날입니다.")
+
+
+# ==========================================
+# 급식이 있는 경우
+# ==========================================
+
+elif status == "OK":
+
+    menu = meal.get(
+        "DDISH_NM",
+        ""
+    )
+
+    calorie = meal.get(
+        "CAL_INFO",
+        ""
     )
 
 
-    # 축약어를 풀어서 검색한 경우
-    if was_expanded:
+    # ======================================
+    # 메뉴 문자열 정리
+    # ======================================
 
-        expanded_name = expand_school_name(
-            school_keyword
-        )
+    menu_text = menu.replace(
+        "<br/>",
+        "\n"
+    )
 
-        st.info(
-            f"'{school_keyword}'로 검색한 결과가 없어 "
-            f"'{expanded_name}'로 다시 검색했습니다."
-        )
-
-
-    # 학교를 찾지 못한 경우
-    if not schools:
-
-        st.warning(
-            "입력한 학교를 찾지 못했습니다. "
-            "학교 이름을 다시 확인해 주세요."
-        )
-
-        if "selected_school" in st.session_state:
-            del st.session_state["selected_school"]
+    menu_text = menu_text.replace(
+        "<br>",
+        "\n"
+    )
 
 
-    else:
-
-        # ==============================
-        # 중복 학교 제거
-        # ==============================
-
-        unique_schools = []
-        seen = set()
+    # HTML 태그 제거
+    menu_text = re.sub(
+        r"<[^>]+>",
+        "",
+        menu_text
+    )
 
 
-        for school in schools:
-
-            key = (
-                school.get(
-                    "ATPT_OFCDC_SC_CODE"
-                ),
-                school.get(
-                    "SD_SCHUL_CODE"
-                )
-            )
-
-
-            if key not in seen:
-
-                seen.add(key)
-                unique_schools.append(school)
-
-
-        schools = unique_schools
-
-
-        # ==============================
-        # 학교 선택 목록
-        # ==============================
-
-        school_options = {}
-
-
-        for school in schools:
-
-            school_name = school.get(
-                "SCHUL_NM",
-                ""
-            )
-
-            region = school.get(
-                "LCTN_SC_NM",
-                ""
-            )
-
-
-            label = (
-                f"{region} · {school_name}"
-            )
-
-
-            # 같은 이름과 지역이 중복될 경우
-            if label in school_options:
-
-                label = (
-                    f"{region} · "
-                    f"{school_name} "
-                    f"({school.get('SD_SCHUL_CODE', '')})"
-                )
-
-
-            school_options[label] = school
-
-
-        selected_label = st.selectbox(
-            "학교를 선택하세요",
-            list(school_options.keys())
-        )
-
-
-        selected_school = school_options[
-            selected_label
-        ]
-
-
-        # 선택한 학교 저장
-        st.session_state[
-            "selected_school"
-        ] = selected_school
-
-
-# ==============================
-# 2. 날짜 선택
-# ==============================
-
-if "selected_school" in st.session_state:
-
-    school = st.session_state[
-        "selected_school"
+    # 메뉴별로 나누기
+    menu_items = [
+        item.strip()
+        for item in menu_text.split("\n")
+        if item.strip()
     ]
 
 
-    st.success(
-        "선택한 학교: "
-        f"{school.get('LCTN_SC_NM', '')} · "
-        f"{school.get('SCHUL_NM', '')}"
-    )
+    # ======================================
+    # 알레르기 정보 끄기
+    # ======================================
 
+    if not show_allergy:
 
-    st.subheader("2. 급식 날짜 선택")
+        cleaned_items = []
 
+        for item in menu_items:
 
-    selected_date = st.date_input(
-        "날짜를 선택하세요",
-        value=today_kst
-    )
-
-
-    # YYYYMMDD 형식
-    date_string = selected_date.strftime(
-        "%Y%m%d"
-    )
-
-
-    # ==============================
-    # 3. 중식 조회
-    # ==============================
-
-    st.subheader("3. 중식")
-
-
-    meal, status = search_meal(
-        office_code=school.get(
-            "ATPT_OFCDC_SC_CODE"
-        ),
-        school_code=school.get(
-            "SD_SCHUL_CODE"
-        ),
-        date_string=date_string
-    )
-
-
-    # ==============================
-    # 급식 표시
-    # ==============================
-
-    if status == "OK" and meal:
-
-        menu = meal.get(
-            "DDISH_NM",
-            ""
-        )
-
-        calorie = meal.get(
-            "CAL_INFO",
-            ""
-        )
-
-
-        if not menu:
-
-            st.info(
-                "이날 등록된 중식 메뉴가 없습니다."
-            )
-
-
-        else:
-
-            # --------------------------
-            # 메뉴
-            # --------------------------
-
-            st.markdown("### 🍚 메뉴")
-
-
-            menu_text = menu.replace(
-                "<br/>",
-                "\n"
-            )
-
-            menu_text = menu_text.replace(
-                "<br>",
-                "\n"
-            )
-
-
-            # HTML 태그 제거
-            menu_text = re.sub(
-                r"<[^>]+>",
+            # 메뉴 마지막의 괄호 안 알레르기 번호 제거
+            # 예:
+            # 김치찌개(5.6.9) → 김치찌개
+            item = re.sub(
+                r"\s*\([^()]*\)\s*$",
                 "",
-                menu_text
-            )
+                item
+            ).strip()
+
+            cleaned_items.append(item)
+
+        menu_items = cleaned_items
 
 
-            menu_items = [
-                item.strip()
-                for item in menu_text.split("\n")
-                if item.strip()
-            ]
+    # ======================================
+    # 메뉴 가짓수와 칼로리
+    # ======================================
+
+    count_col, calorie_col = st.columns(2)
 
 
-            for item in menu_items:
+    with count_col:
 
-                st.write(
-                    f"• {item}"
+        st.metric(
+            label="메뉴 가짓수",
+            value=f"{len(menu_items)}가지"
+        )
+
+
+    with calorie_col:
+
+        st.metric(
+            label="칼로리",
+            value=calorie if calorie else "정보 없음"
+        )
+
+
+    st.markdown("---")
+
+
+    # ======================================
+    # 메뉴 카드
+    # ======================================
+
+    st.markdown("### 오늘의 메뉴")
+
+
+    if menu_items:
+
+        # 한 줄에 3개의 메뉴 카드
+        columns = st.columns(3)
+
+
+        for index, item in enumerate(menu_items):
+
+            with columns[index % 3]:
+
+                st.container(
+                    border=True
                 )
 
+                with st.container(
+                    border=True
+                ):
 
-            # --------------------------
-            # 알레르기 번호
-            # --------------------------
-
-            st.markdown(
-                "### 🔢 알레르기 번호"
-            )
-
-
-            allergy_numbers = re.findall(
-                r"\(([^()]*)\)",
-                menu_text
-            )
-
-
-            if allergy_numbers:
-
-                st.write(
-                    " / ".join(
-                        allergy_numbers
+                    st.markdown(
+                        f"### 🍚 {item}"
                     )
-                )
-
-            else:
-
-                st.write(
-                    "표시된 알레르기 번호가 없습니다."
-                )
-
-
-            # --------------------------
-            # 칼로리
-            # --------------------------
-
-            st.markdown(
-                "### 🔥 칼로리"
-            )
-
-
-            if calorie:
-
-                st.write(calorie)
-
-            else:
-
-                st.write(
-                    "칼로리 정보가 없습니다."
-                )
-
-
-    # ==============================
-    # 급식 없음
-    # ==============================
-
-    elif status == "INFO-200":
-
-        st.info(
-            f"{selected_date.strftime('%Y년 %m월 %d일')}에는 "
-            "등록된 중식 급식 정보가 없습니다."
-        )
-
-
-    # ==============================
-    # 인터넷/API 오류
-    # ==============================
-
-    elif status == "NETWORK_ERROR":
-
-        st.warning(
-            "급식 정보를 가져오는 중 문제가 발생했습니다. "
-            "잠시 후 다시 시도해 주세요."
-        )
 
 
     else:
 
-        st.warning(
-            "급식 정보를 확인할 수 없습니다. "
-            "잠시 후 다시 시도해 주세요."
+        st.info(
+            "등록된 메뉴가 없습니다."
         )
+
+
+# ==========================================
+# 네트워크 오류
+# ==========================================
+
+elif status == "NETWORK_ERROR":
+
+    st.warning(
+        "급식 정보를 가져오는 중 문제가 발생했습니다. "
+        "잠시 후 다시 시도해 주세요."
+    )
+
+
+# ==========================================
+# 기타 오류
+# ==========================================
+
+else:
+
+    st.warning(
+        "급식 정보를 확인할 수 없습니다. "
+        "잠시 후 다시 시도해 주세요."
+    )
