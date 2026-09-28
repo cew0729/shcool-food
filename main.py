@@ -5,9 +5,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-# ==============================
+# ==========================================
 # 페이지 설정
-# ==============================
+# ==========================================
 
 st.set_page_config(
     page_title="학교 급식 찾아보기",
@@ -16,45 +16,45 @@ st.set_page_config(
 )
 
 st.title("학교 급식 찾아보기")
-st.write("학교 이름을 검색하고 원하는 날짜의 중식 메뉴를 확인해 보세요.")
+st.write("학교를 검색하고 원하는 날짜의 중식 메뉴를 확인해 보세요.")
 
 
-# ==============================
+# ==========================================
 # NEIS API 주소
-# ==============================
+# ==========================================
 
 SCHOOL_API = "https://open.neis.go.kr/hub/schoolInfo"
 MEAL_API = "https://open.neis.go.kr/hub/mealServiceDietInfo"
 
 
-# ==============================
-# 한국 시간 기준 오늘
-# ==============================
+# ==========================================
+# 한국 시간 기준 오늘 날짜
+# ==========================================
 
 KST = ZoneInfo("Asia/Seoul")
 today_kst = datetime.now(KST).date()
 
 
-# ==============================
+# ==========================================
 # 학교 이름 축약어 변환
-# ==============================
+# ==========================================
 
 def expand_school_name(name):
     name = name.strip()
 
-    # 여고 → 여자고등학교
+    # '여고' → '여자고등학교'
     name = name.replace("여고", "여자고등학교")
 
-    # 마지막 글자가 '고'이면 고등학교로 변경
+    # 마지막이 '고'이면 '고등학교'로 변경
     if name.endswith("고") and not name.endswith("고등학교"):
         name = name[:-1] + "고등학교"
 
     return name
 
 
-# ==============================
-# 학교 정보 검색
-# ==============================
+# ==========================================
+# 학교 정보 API 호출
+# ==========================================
 
 @st.cache_data(ttl=600)
 def search_school(keyword):
@@ -97,9 +97,9 @@ def search_school(keyword):
     return rows, "OK"
 
 
-# ==============================
-# 학교 검색
-# ==============================
+# ==========================================
+# 학교 찾기
+# ==========================================
 
 def find_schools(keyword):
 
@@ -109,21 +109,21 @@ def find_schools(keyword):
         return [], False
 
 
-    # 1차 검색
+    # 1차: 사용자가 입력한 이름 그대로 검색
     schools, status = search_school(keyword)
 
     if status == "OK" and schools:
         return schools, False
 
 
-    # 2차 검색
-    # 여고 → 여자고등학교
-    # 고 → 고등학교
+    # 2차: 줄임말을 풀어서 검색
     expanded_name = expand_school_name(keyword)
 
     if expanded_name != keyword:
 
-        schools, status = search_school(expanded_name)
+        schools, status = search_school(
+            expanded_name
+        )
 
         if status == "OK" and schools:
             return schools, True
@@ -132,9 +132,9 @@ def find_schools(keyword):
     return [], False
 
 
-# ==============================
-# 급식 정보 검색
-# ==============================
+# ==========================================
+# 급식 API 호출
+# ==========================================
 
 @st.cache_data(ttl=600)
 def search_meal(
@@ -150,16 +150,12 @@ def search_meal(
         "MMEAL_SC_CODE": "2",
         "MLSV_FROM_YMD": date_string,
         "MLSV_TO_YMD": date_string,
-
-        # 인증키 없이 조회하면
-        # NEIS에서 첫 5건만 반환할 수 있음
         "pSize": "1000",
         "pIndex": "1"
     }
 
 
     try:
-
         response = requests.get(
             MEAL_API,
             params=params,
@@ -183,7 +179,6 @@ def search_meal(
 
 
     try:
-
         rows = data["mealServiceDietInfo"][1]["row"]
 
     except (KeyError, IndexError, TypeError):
@@ -194,8 +189,7 @@ def search_meal(
         return None, "INFO-200"
 
 
-    # 혹시 여러 날짜가 반환될 경우
-    # 선택한 날짜와 정확히 일치하는 행 찾기
+    # 선택한 날짜와 같은 급식만 찾기
     for row in rows:
 
         if row.get("MLSV_YMD") == date_string:
@@ -205,11 +199,11 @@ def search_meal(
     return None, "INFO-200"
 
 
-# ==============================
-# 1. 학교 검색
-# ==============================
+# ==========================================
+# 학교 검색 화면
+# ==========================================
 
-st.subheader("1. 학교 선택")
+st.subheader("학교 선택")
 
 school_keyword = st.text_input(
     "학교 이름을 입력하세요",
@@ -224,7 +218,7 @@ if school_keyword.strip():
     )
 
 
-    # 축약어를 풀어서 검색한 경우
+    # 줄임말을 풀어서 다시 검색한 경우
     if was_expanded:
 
         expanded_name = expand_school_name(
@@ -232,7 +226,7 @@ if school_keyword.strip():
         )
 
         st.info(
-            f"'{school_keyword}'로 검색한 결과가 없어 "
+            f"'{school_keyword}'로 찾지 못해 "
             f"'{expanded_name}'로 다시 검색했습니다."
         )
 
@@ -242,7 +236,7 @@ if school_keyword.strip():
 
         st.warning(
             "입력한 학교를 찾지 못했습니다. "
-            "학교 이름을 다시 확인해 주세요."
+            "학교 이름을 다시 입력해 주세요."
         )
 
         if "selected_school" in st.session_state:
@@ -251,9 +245,9 @@ if school_keyword.strip():
 
     else:
 
-        # ==============================
+        # ==================================
         # 중복 학교 제거
-        # ==============================
+        # ==================================
 
         unique_schools = []
         seen = set()
@@ -280,9 +274,9 @@ if school_keyword.strip():
         schools = unique_schools
 
 
-        # ==============================
+        # ==================================
         # 학교 선택 목록
-        # ==============================
+        # ==================================
 
         school_options = {}
 
@@ -300,12 +294,13 @@ if school_keyword.strip():
             )
 
 
+            # 지역 + 학교 이름
             label = (
                 f"{region} · {school_name}"
             )
 
 
-            # 같은 이름과 지역이 중복될 경우
+            # 같은 이름이 중복되는 경우
             if label in school_options:
 
                 label = (
@@ -335,9 +330,9 @@ if school_keyword.strip():
         ] = selected_school
 
 
-# ==============================
-# 2. 날짜 선택
-# ==============================
+# ==========================================
+# 날짜 및 급식
+# ==========================================
 
 if "selected_school" in st.session_state:
 
@@ -353,9 +348,10 @@ if "selected_school" in st.session_state:
     )
 
 
-    st.subheader("2. 급식 날짜 선택")
+    st.subheader("급식 날짜 선택")
 
 
+    # 한국 시간 기준 오늘을 기본값으로 사용
     selected_date = st.date_input(
         "날짜를 선택하세요",
         value=today_kst
@@ -368,12 +364,9 @@ if "selected_school" in st.session_state:
     )
 
 
-    # ==============================
-    # 3. 중식 조회
-    # ==============================
-
-    st.subheader("3. 중식")
-
+    # ======================================
+    # 급식 조회
+    # ======================================
 
     meal, status = search_meal(
         office_code=school.get(
@@ -386,9 +379,12 @@ if "selected_school" in st.session_state:
     )
 
 
-    # ==============================
-    # 급식 표시
-    # ==============================
+    st.subheader("중식")
+
+
+    # ======================================
+    # 급식이 있는 경우
+    # ======================================
 
     if status == "OK" and meal:
 
@@ -412,13 +408,14 @@ if "selected_school" in st.session_state:
 
         else:
 
-            # --------------------------
+            # --------------------------------
             # 메뉴
-            # --------------------------
+            # --------------------------------
 
             st.markdown("### 🍚 메뉴")
 
 
+            # NEIS의 <br/>를 줄바꿈으로 변경
             menu_text = menu.replace(
                 "<br/>",
                 "\n"
@@ -430,7 +427,7 @@ if "selected_school" in st.session_state:
             )
 
 
-            # HTML 태그 제거
+            # 혹시 남아 있는 HTML 태그 제거
             menu_text = re.sub(
                 r"<[^>]+>",
                 "",
@@ -452,9 +449,9 @@ if "selected_school" in st.session_state:
                 )
 
 
-            # --------------------------
+            # --------------------------------
             # 알레르기 번호
-            # --------------------------
+            # --------------------------------
 
             st.markdown(
                 "### 🔢 알레르기 번호"
@@ -482,9 +479,9 @@ if "selected_school" in st.session_state:
                 )
 
 
-            # --------------------------
+            # --------------------------------
             # 칼로리
-            # --------------------------
+            # --------------------------------
 
             st.markdown(
                 "### 🔥 칼로리"
@@ -502,9 +499,9 @@ if "selected_school" in st.session_state:
                 )
 
 
-    # ==============================
-    # 급식 없음
-    # ==============================
+    # ======================================
+    # 급식이 없는 경우
+    # ======================================
 
     elif status == "INFO-200":
 
@@ -514,9 +511,9 @@ if "selected_school" in st.session_state:
         )
 
 
-    # ==============================
-    # 인터넷/API 오류
-    # ==============================
+    # ======================================
+    # 네트워크 오류
+    # ======================================
 
     elif status == "NETWORK_ERROR":
 
@@ -525,6 +522,10 @@ if "selected_school" in st.session_state:
             "잠시 후 다시 시도해 주세요."
         )
 
+
+    # ======================================
+    # 그 외 오류
+    # ======================================
 
     else:
 
